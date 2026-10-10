@@ -1,0 +1,15 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3-csi
+  labels:
+    app.kubernetes.io/name: storageclass-gp3-csi
+    app.kubernetes.io/part-of: ric-gray-failure-research
+    ric.thesis/tier: storage
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+parameters:
+  type: gp3
+  encrypted: "true"

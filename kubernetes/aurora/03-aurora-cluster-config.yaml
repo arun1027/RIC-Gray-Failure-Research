@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aurora-cluster-config
+  namespace: aurora-benchmark
+  labels:
+    app.kubernetes.io/name: aurora-benchmark
+    app.kubernetes.io/part-of: ric-gray-failure-research
+    ric.thesis/subsystem: aurora-postgresql
+    ric.thesis/ca2-compliance: "true"
+data:
+  # Template AWS EKS Aurora Cluster Configuration (Development Placeholder)
+  aurora_engine_version: "15.19"
+  aurora_cluster_identifier: "ric-gray-failure-aurora-cluster"
+  aurora_instance_class: "db.t4g.medium"
+  aurora_allocated_instances: "2" # 1 Writer (AZ-1a) + 1 Reader (AZ-1b) Multi-AZ
+  aurora_region: "us-east-1"
+  aurora_writer_endpoint: "ric-gray-failure-aurora-cluster.cluster-c12345678901.us-east-1.rds.amazonaws.com"
+  aurora_reader_endpoint: "ric-gray-failure-aurora-cluster.cluster-ro-c12345678901.us-east-1.rds.amazonaws.com"
+  aurora_port: "5432"
+  aurora_database: "benchdb"
+  # TLS / SSL Mode Enforcement
+  ssl_mode: "verify-full"
+  ssl_root_cert_path: "/etc/ssl/certs/rds-ca-bundle.pem"

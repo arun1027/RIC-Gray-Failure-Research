@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cockroachdb-sql-diagnostic
+  namespace: cockroachdb
+  labels:
+    app.kubernetes.io/name: cockroachdb-sql-diagnostic
+    app.kubernetes.io/component: preflight-validator
+    app.kubernetes.io/part-of: ric-gray-failure-research
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 120
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000530000
+    seccompProfile:
+      type: RuntimeDefault
+  initContainers:
+    - name: copy-certs
+      image: docker.io/library/busybox@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          cp /certs-src/ca.crt /cockroach-certs/ca.crt
+          cp /certs-src/client.root.crt /cockroach-certs/client.root.crt
+          cp /certs-src/client.root.key /cockroach-certs/client.root.key
+          chmod 0400 /cockroach-certs/ca.crt /cockroach-certs/client.root.crt /cockroach-certs/client.root.key
+          chown 1000530000:1000530000 /cockroach-certs/ca.crt /cockroach-certs/client.root.crt /cockroach-certs/client.root.key
+          for f in /cockroach-certs/ca.crt /cockroach-certs/client.root.crt /cockroach-certs/client.root.key; do
+            [ "$(stat -c '%u:%g:%a' "$f")" = "1000530000:1000530000:400" ] || { echo "Permission check failed for $f"; exit 1; }
+          done
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+        privileged: false
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+          add:
+            - CHOWN
+      resources:
+        requests:
+          cpu: 50m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+      volumeMounts:
+        - name: client-certs-src
+          mountPath: /certs-src
+          readOnly: true
+        - name: client-certs-prepared
+          mountPath: /cockroach-certs
+  containers:
+    - name: cockroach-diagnostic
+      image: cockroachdb/cockroach:v26.3.2
+      imagePullPolicy: IfNotPresent
+      command:
+        - /cockroach/cockroach
+        - sql
+        - --set=errexit=true
+        - --certs-dir=/cockroach-certs
+        - --host=cockroachdb-public.cockroachdb
+        - --execute=SELECT version(); SELECT count(*) AS account_count FROM benchdb.public.pgbench_accounts; SELECT count(*) AS branch_count FROM benchdb.public.pgbench_branches; SELECT count(*) AS teller_count FROM benchdb.public.pgbench_tellers; SELECT count(*) AS history_count FROM benchdb.public.pgbench_history;
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000530000
+        privileged: false
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+      volumeMounts:
+        - name: client-certs-prepared
+          mountPath: /cockroach-certs
+          readOnly: true
+  volumes:
+    - name: client-certs-src
+      secret:
+        secretName: cockroachdb-client-secret
+        defaultMode: 256
+        items:
+          - key: ca.crt
+            path: ca.crt
+          - key: tls.crt
+            path: client.root.crt
+          - key: tls.key
+            path: client.root.key
+    - name: client-certs-prepared
+      emptyDir:
+        medium: Memory
+        sizeLimit: 1Mi

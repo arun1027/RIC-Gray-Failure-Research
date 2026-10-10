@@ -1,0 +1,40 @@
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gp3-smoke-test-pvc
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: ric-gray-failure-research
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3-csi
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gp3-smoke-test
+  namespace: default
+spec:
+  restartPolicy: Never
+  containers:
+    - name: storage-test
+      image: public.ecr.aws/docker/library/busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "RIC EBS GP3 storage test" > /data/test.txt
+          cat /data/test.txt
+          sleep 3600
+      volumeMounts:
+        - name: test-volume
+          mountPath: /data
+  volumes:
+    - name: test-volume
+      persistentVolumeClaim:
+        claimName: gp3-smoke-test-pvc

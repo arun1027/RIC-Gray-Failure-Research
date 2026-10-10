@@ -9,14 +9,6 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.40.0"
     }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = "~> 2.28.0"
-    }
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 2.12.0"
-    }
   }
 }
 
@@ -70,31 +62,57 @@ module "vpc" {
 
 # EKS Cluster Definition
 module "eks" {
-  source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.8.0"
+  source = "../modules/eks"
 
   cluster_name    = local.cluster_name
-  cluster_version = "1.28" # Pinned Kubernetes version
+  cluster_version = "1.34" # Standard supported Kubernetes version on AWS EKS
 
-  cluster_endpoint_public_access  = true
-  cluster_endpoint_private_access = true
+  # IAM & Encryption: Enable native least-privilege IAM role creation for personal AWS account
+  create_iam_role           = true
+  iam_role_arn              = var.eks_cluster_role_arn
+  enable_irsa               = true
+  create_kms_key            = false
+  cluster_encryption_config = {}
+
+  # Grant cluster administrator privileges to personal account IAM operator via standard access entry
+  access_entries = {
+    personal_admin = {
+      principal_arn = "arn:aws:iam::397916376204:user/RIC_grey_failure"
+      type          = "STANDARD"
+      policy_associations = {
+        admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = {
+            type = "cluster"
+          }
+        }
+      }
+    }
+  }
+
+  cluster_endpoint_public_access       = true
+  cluster_endpoint_private_access      = true
+  cluster_endpoint_public_access_cidrs = [var.operator_public_ip_cidr]
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
-  # Core EKS Addons
+  # Core EKS Addons - pinned AWS default versions for Kubernetes 1.34
   cluster_addons = {
     coredns = {
-      most_recent = true
+      addon_version = "v1.13.2-eksbuild.75"
     }
+
     kube-proxy = {
-      most_recent = true
+      addon_version = "v1.34.6-eksbuild.69"
     }
+
     vpc-cni = {
-      most_recent = true
+      addon_version = "v1.22.4-eksbuild.14"
     }
+
     aws-ebs-csi-driver = {
-      most_recent = true
+      addon_version = "v1.68.0-eksbuild.1"
     }
   }
 
@@ -106,7 +124,11 @@ module "eks" {
       max_size     = 3
       desired_size = 3
 
-      instance_types = [var.node_instance_type] # m5.xlarge (4 vCPU, 16 GiB RAM)
+      create_iam_role = true
+      iam_role_name   = "${var.project_prefix}-db-nodes"
+      iam_role_arn    = var.eks_node_role_arn
+
+      instance_types = [var.node_instance_type] # m5.large approved pilot (2 vCPU, 8 GiB RAM per node; 3 nodes = 6 vCPU, 24 GiB RAM)
       capacity_type  = "ON_DEMAND"
 
       block_device_mappings = {
@@ -124,40 +146,18 @@ module "eks" {
       }
 
       labels = {
-        "node.kubernetes.io/scope"           = "database-worker"
-        "ric.thesis/subsystem"               = "shared-workers"
-        "topology.kubernetes.io/zone-spread" = "enforced"
+        "node.kubernetes.io/scope" = "database-worker"
+        "ric.thesis/subsystem"     = "shared-workers"
+        "ric.thesis/zone-spread"   = "enforced"
       }
     }
   }
 }
 
-# Dedicated EBS gp3 StorageClass with Immediate Binding
-resource "kubernetes_storage_class_v1" "gp3" {
-  metadata {
-    name = "gp3"
-    annotations = {
-      "storageclass.kubernetes.io/is-default-class" = "true"
-    }
-  }
-
-  storage_provisioner    = "ebs.csi.aws.com"
-  volume_binding_mode    = "WaitForFirstConsumer"
-  allow_volume_expansion = true
-
-  parameters = {
-    type       = "gp3"
-    iops       = "3000"
-    throughput = "125"
-    encrypted  = "true"
-  }
-
-  depends_on = [module.eks]
-}
-
 # Optional Decoupled Aurora PostgreSQL Multi-AZ Module
-# Provisioned independently or toggled via variable
+# Provisioned conditionally via var.enable_aurora (disabled by default for CockroachDB testing)
 module "aurora" {
+  count  = var.enable_aurora ? 1 : 0
   source = "../modules/aurora"
 
   project_prefix        = var.project_prefix
@@ -165,7 +165,7 @@ module "aurora" {
   database_subnets      = module.vpc.private_subnets
   eks_security_group_id = module.eks.node_security_group_id
   aurora_instance_class = var.aurora_instance_class
-  engine_version        = "14.9"
+  engine_version        = "15.19"
   database_name         = "benchdb"
   master_username       = "postgres"
 }

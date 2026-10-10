@@ -19,12 +19,12 @@ variable "eks_security_group_id" {
 
 variable "aurora_instance_class" {
   type    = string
-  default = "db.r6g.xlarge"
+  default = "db.t4g.medium"
 }
 
 variable "engine_version" {
   type    = string
-  default = "14.9"
+  default = "15.19"
 }
 
 variable "database_name" {

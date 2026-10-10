@@ -1,0 +1,136 @@
+# G1 Privileged Chaos Helper Ephemeral Job Manifest
+# Phase F.2.1 — Prepared for offline review ONLY. DO NOT APPLY in this phase.
+#
+# SECURITY NOTES:
+# - CAP_SYS_ADMIN in the initial user namespace (init_user_ns) combined with hostPID: true
+#   is NOT least-privilege and is NOT risk-free: it permits setns(2) into host process
+#   namespaces via /proc/<pid>/ns/*.
+# - Blast radius is mitigated (not eliminated) by: dedicated 'g1-chaos' namespace,
+#   readOnlyRootFilesystem: true, allowPrivilegeEscalation: false, RuntimeDefault seccomp,
+#   no hostPath mounts, and ephemeral single-run Job lifecycle.
+# - IMPORTANT: activeDeadlineSeconds terminates the helper via SIGKILL and does NOT
+#   guarantee cleanup of tc qdiscs inside the target CockroachDB pod's network namespace.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: g1-chaos-helper
+  namespace: g1-chaos
+  labels:
+    app.kubernetes.io/name: g1-chaos-helper
+    app.kubernetes.io/part-of: ric-gray-failure-research
+    ric.research/scenario: g1
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: g1-chaos-helper
+        ric.research/scenario: g1
+    spec:
+      serviceAccountName: g1-chaos-helper-sa
+      restartPolicy: Never
+      # Must be pinned to the exact worker node hosting the target CockroachDB leaseholder pod.
+      nodeName: <TARGET_WORKER_NODE_NAME>
+      hostPID: true
+      hostNetwork: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: g1-helper
+          # Digest MUST be populated and verified after an approved ECR build.
+          image: <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/ric-g1-helper@sha256:<IMMUTABLE_SHA256_DIGEST_REQUIRED>
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: G1_RUN_ID
+              value: "<RUN_ID>"
+            - name: G1_TARGET_POD
+              value: "<TARGET_COCKROACHDB_POD>"
+            - name: G1_TARGET_NAMESPACE
+              value: "cockroachdb"
+            - name: G1_TARGET_INTERFACE
+              value: "eth0"
+            - name: G1_FAULT_DELAY_MS
+              value: "1000"
+            - name: G1_FAULT_JITTER_MS
+              value: "20"
+            - name: G1_FAULT_DURATION_SEC
+              value: "180"
+            - name: G1_AUTH_TOKEN_DIR
+              value: "/var/run/g1-auth"
+            - name: G1_AUTH_LOCK_DIR
+              value: "/var/run/g1-lock"
+            - name: G1_AUTH_ALLOW_READONLY_SECRET
+              value: "1"
+            - name: G1_CLAIM_NAMESPACE
+              value: "g1-chaos"
+            - name: G1_HELPER_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: G1_HELPER_POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+          securityContext:
+            runAsUser: 0
+            privileged: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_ADMIN
+                - SYS_ADMIN
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          ports:
+            - name: health
+              containerPort: 8081
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            failureThreshold: 6
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp-ephemeral
+              mountPath: /tmp
+            - name: lock-dir
+              mountPath: /var/run/g1-lock
+            - name: fault-auth-token
+              mountPath: /var/run/g1-auth
+              readOnly: true
+      volumes:
+        - name: tmp-ephemeral
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        - name: lock-dir
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Mi
+        - name: fault-auth-token
+          secret:
+            secretName: g1-fault-auth-token
+            defaultMode: 0400
+

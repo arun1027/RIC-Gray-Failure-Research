@@ -1,0 +1,25 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: g4-cpu-starvation-l1
+  namespace: chaos-mesh
+  labels:
+    app.kubernetes.io/name: chaos-mesh
+    app.kubernetes.io/component: stresschaos
+    experiment.ric.research/protocol: G4-01
+    experiment.ric.research/level: L1
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - cockroachdb
+    pods:
+      cockroachdb:
+        - cockroachdb-1
+  containerNames:
+    - db
+  stressors:
+    cpu:
+      workers: 1
+      load: 80
+  duration: "180s"

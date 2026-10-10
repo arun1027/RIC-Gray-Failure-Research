@@ -1,0 +1,19 @@
+statefulset:
+  replicas: 3
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "4096Mi"
+    limits:
+      cpu: "1500m"
+      memory: "5120Mi"
+
+conf:
+  single-node: false
+  cache: "1024Mi"
+  max-sql-memory: "1024Mi"
+
+storage:
+  persistentVolume:
+    size: 5Gi
+    storageClass: "gp3-csi"

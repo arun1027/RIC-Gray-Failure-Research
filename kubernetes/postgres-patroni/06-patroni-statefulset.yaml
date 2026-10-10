@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: patroni
+  namespace: postgres-patroni
+  labels:
+    app.kubernetes.io/name: patroni
+    app.kubernetes.io/part-of: ric-gray-failure-research
+    ric.thesis/subsystem: postgres-patroni
+    ric.thesis/ca2-compliance: "true"
+spec:
+  serviceName: patroni-headless
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: patroni
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: patroni
+        app.kubernetes.io/part-of: ric-gray-failure-research
+        ric.thesis/subsystem: postgres-patroni
+        ric.thesis/ca2-compliance: "true"
+    spec:
+      serviceAccountName: patroni-sa
+      terminationGracePeriodSeconds: 30
+      enableServiceLinks: false
+      securityContext:
+        fsGroup: 103
+        fsGroupChangePolicy: OnRootMismatch
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: ["patroni"]
+              topologyKey: topology.kubernetes.io/zone
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: ["patroni"]
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: patroni
+          # Pinned multi-arch release combining PostgreSQL 15 and Patroni 3.0.x
+          image: ghcr.io/zalando/spilo-15:3.0-p1@sha256:8f59f3856e228bc7bf602fc71a5f44d755c8a9a0215c4e99fd3bc5ae2e620e73
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgresql
+              containerPort: 5432
+            - name: patroni-api
+              containerPort: 8008
+          env:
+            - name: PATRONI_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PATRONI_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PATRONI_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: PATRONI_SCOPE
+              value: "postgres-patroni-cluster"
+            - name: PATRONI_SUPERUSER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: patroni-credentials
+                  key: superuser-password
+            - name: PATRONI_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: patroni-credentials
+                  key: replication-password
+            - name: PATRONI_CONFIGURATION
+              valueFrom:
+                configMapKeyRef:
+                  name: patroni-config
+                  key: patroni.yml
+            - name: ETCD3_HOSTS
+              value: "['etcd-0.etcd-headless.postgres-patroni.svc.cluster.local:2379', 'etcd-1.etcd-headless.postgres-patroni.svc.cluster.local:2379', 'etcd-2.etcd-headless.postgres-patroni.svc.cluster.local:2379']"
+            - name: PGUSER_STANDBY
+              value: "replicator"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: 8008
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: 8008
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: pgdata
+              mountPath: /home/postgres/pgdata
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+        labels:
+          app.kubernetes.io/name: patroni
+          app.kubernetes.io/part-of: ric-gray-failure-research
+          ric.thesis/subsystem: postgres-patroni
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp3-csi
+        resources:
+          requests:
+            storage: 10Gi
+

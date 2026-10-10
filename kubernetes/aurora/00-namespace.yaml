@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aurora-benchmark
+  labels:
+    app.kubernetes.io/name: aurora-benchmark
+    app.kubernetes.io/part-of: ric-gray-failure-research
+    ric.thesis/subsystem: aurora-postgresql
+    ric.thesis/ca2-compliance: "true"
+

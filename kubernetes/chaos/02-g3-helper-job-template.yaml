@@ -1,0 +1,141 @@
+# G3 Helper Ephemeral Job Manifest Template
+# Stage G3 Pilot & Formal Configuration Template
+#
+# SECURITY BOUNDARIES:
+# - Mounts /sys/fs/cgroup from host node to access unified cgroup v2 hierarchy.
+# - Requires CAP_SYS_ADMIN strictly to write block I/O limits into io.max.
+# - Blast radius bounded by: readOnlyRootFilesystem: true, allowPrivilegeEscalation: false,
+#   hostNetwork: false, RuntimeDefault seccomp, g1-chaos namespace.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: g3-chaos-helper
+  namespace: g1-chaos
+  labels:
+    app.kubernetes.io/name: g3-chaos-helper
+    app.kubernetes.io/part-of: ric-gray-failure-research
+    ric.research/scenario: g3
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: g3-chaos-helper
+        ric.research/scenario: g3
+    spec:
+      serviceAccountName: g1-chaos-helper-sa
+      restartPolicy: Never
+      # Dynamically pinned to the target worker node hosting the target pod
+      nodeName: <TARGET_WORKER_NODE_NAME>
+      hostPID: true
+      hostNetwork: false
+      terminationGracePeriodSeconds: 15
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: host-cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: ephemeral-auth
+          emptyDir: {}
+      containers:
+        - name: g3-helper
+          # Pinned base image (Amazon Linux 2023 or minimal busybox with cgroup tools)
+          image: 397916376204.dkr.ecr.us-east-1.amazonaws.com/ric-g2-helper@sha256:c91021ab1a9ab57edecb8a72ad2e872b60e85231f600a3a030f81360d6cb5924
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: G3_RUN_ID
+              value: "<RUN_ID>"
+            - name: G3_TARGET_POD
+              value: "<TARGET_COCKROACHDB_POD>"
+            - name: G3_CONTAINER_ID
+              value: "<CONTAINER_ID>"
+            - name: G3_DEV_MAJOR
+              value: "<DEV_MAJOR>"
+            - name: G3_DEV_MINOR
+              value: "<DEV_MINOR>"
+            - name: G3_LIMIT_WBPS
+              value: "<LIMIT_WBPS>"
+            - name: G3_LIMIT_WIOPS
+              value: "<LIMIT_WIOPS>"
+            - name: G3_DURATION_SEC
+              value: "<DURATION_SEC>"
+            - name: G3_DRY_RUN
+              value: "<DRY_RUN>"
+          volumeMounts:
+            - name: host-cgroup
+              mountPath: /host/sys/fs/cgroup
+              readOnly: false
+            - name: ephemeral-auth
+              mountPath: /var/run/g3-auth
+          securityContext:
+            runAsUser: 0
+            privileged: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - SYS_ADMIN
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -euo pipefail
+              echo "[G3 Helper] Starting helper execution for ${G3_RUN_ID}"
+              echo "[G3 Helper] Target: ${G3_TARGET_POD}, Device: ${G3_DEV_MAJOR}:${G3_DEV_MINOR}"
+              
+              # Locate cgroup
+              CGROUP_PATH=$(find /host/sys/fs/cgroup -name "*${G3_CONTAINER_ID}*" -type d | head -n 1)
+              if [ -z "${CGROUP_PATH}" ] || [ ! -f "${CGROUP_PATH}/io.max" ]; then
+                echo "[G3 Helper] ERROR: Cgroup path not found for container ${G3_CONTAINER_ID}"
+                exit 1
+              fi
+              echo "[G3 Helper] Cgroup resolved: ${CGROUP_PATH}"
+              
+              # Initial state check
+              echo "[G3 Helper] Initial io.max state:"
+              cat "${CGROUP_PATH}/io.max" || true
+              
+              if [ "${G3_DRY_RUN}" = "true" ]; then
+                echo "[G3 Helper] DRY RUN MODE: Simulating fault injection of wbps=${G3_LIMIT_WBPS} wiops=${G3_LIMIT_WIOPS}"
+                sleep "${G3_DURATION_SEC}"
+                echo "[G3 Helper] DRY RUN MODE: Simulating fault clearance"
+                echo "[G3 Helper] Dry run complete."
+                exit 0
+              fi
+              
+              # Inject fault
+              echo "[G3 Helper] Applying I/O limit: ${G3_DEV_MAJOR}:${G3_DEV_MINOR} wbps=${G3_LIMIT_WBPS} wiops=${G3_LIMIT_WIOPS}"
+              echo "${G3_DEV_MAJOR}:${G3_DEV_MINOR} wbps=${G3_LIMIT_WBPS} wiops=${G3_LIMIT_WIOPS}" > "${CGROUP_PATH}/io.max"
+              
+              # Verify applied limit
+              echo "[G3 Helper] Verifying applied limit..."
+              grep -E "^${G3_DEV_MAJOR}:${G3_DEV_MINOR}" "${CGROUP_PATH}/io.max"
+              echo "[G3 Helper] Limit successfully applied. Holding for ${G3_DURATION_SEC} seconds..."
+              
+              # Sleep fault duration
+              sleep "${G3_DURATION_SEC}"
+              
+              # Clear fault
+              echo "[G3 Helper] Clearing I/O limit..."
+              echo "${G3_DEV_MAJOR}:${G3_DEV_MINOR} wbps=max wiops=max" > "${CGROUP_PATH}/io.max"
+              
+              # Verify clearance
+              echo "[G3 Helper] Post-clearance io.max state:"
+              cat "${CGROUP_PATH}/io.max" || true
+              echo "[G3 Helper] Fault clearance confirmed."
+

@@ -1,0 +1,51 @@
+{
+  "protocol": "G4-01",
+  "experiment": "CockroachDB G4 Controlled CPU Starvation",
+  "engine": "Chaos Mesh StressChaos",
+  "chaos_namespace": "chaos-mesh",
+  "target": {
+    "namespace": "cockroachdb",
+    "pod_name": "cockroachdb-1",
+    "pod_uid": "1a98abd7-7ac3-4bd6-96ee-1dcfd67f0f67",
+    "node_name": "ip-10-0-1-160.ec2.internal",
+    "container_name": "db"
+  },
+  "client_pod": "crdb-benchmark-client-hardened",
+  "client_namespace": "cockroachdb",
+  "trusted_public_key_path": "C:\\OperatorKeys\\g3\\g3_operator_ed25519_pub.key",
+  "trusted_public_key_fallback_path": "security/keys/g3_operator_ed25519_pub.key",
+  "trusted_public_key_sha256": "78466ea05398c7b3a26440ba42230989ba6a092f5942e5d5ec152a95c434f621",
+  "timing_defaults": {
+    "warmup_sec": 120,
+    "baseline_sec": 180,
+    "fault_duration_sec": 180,
+    "recovery_observation_sec": 300,
+    "continuous_measurement_window_sec": 660,
+    "total_experiment_runtime_sec": 780,
+    "telemetry_interval_sec": 5.0,
+    "max_telemetry_gap_sec": 30.0
+  },
+  "levels": {
+    "L1": {
+      "load": 80,
+      "workers": 1,
+      "manifest_path": "kubernetes/chaos/g4/g4-cpu-stress-l1.yaml",
+      "manifest_sha256": "c6254254a7267aa923654177a5a9c0b3b5b7ecaf954b6db9cfe7fb8949cbd10e",
+      "stresschaos_name": "g4-cpu-starvation-l1"
+    },
+    "L2": {
+      "load": 90,
+      "workers": 1,
+      "manifest_path": "kubernetes/chaos/g4/g4-cpu-stress-l2.yaml",
+      "manifest_sha256": "8947ebee544d8a445ad0a13278c34a70d1061a73bdc23a64b80e0931a35f8966",
+      "stresschaos_name": "g4-cpu-starvation-l2"
+    },
+    "L3": {
+      "load": 95,
+      "workers": 1,
+      "manifest_path": "kubernetes/chaos/g4/g4-cpu-stress-l3.yaml",
+      "manifest_sha256": "61db405b4dca887da7084b2bc1526cde2726f993292f2ae928fdcaa93b16d5da",
+      "stresschaos_name": "g4-cpu-starvation-l3"
+    }
+  }
+}

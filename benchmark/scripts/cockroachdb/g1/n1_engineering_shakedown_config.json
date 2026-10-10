@@ -1,0 +1,54 @@
+{
+  "run_id": "cockroachdb-g1-engineering-n1",
+  "run_classification": "N=1_ENGINEERING_SHAKEDOWN_ONLY",
+  "official_pilot_n": 2,
+  "formal_experiment_n": 10,
+  "experiment_id": "RIC-G1-COCKROACHDB-LATENCY-PILOT",
+  "target": {
+    "system": "CockroachDB v26.3.2",
+    "cluster": "ric-gray-failure-eks",
+    "region": "us-east-1",
+    "namespace": "cockroachdb",
+    "chaos_namespace": "g1-chaos",
+    "database": "benchdb",
+    "table": "pgbench_accounts",
+    "policy": "POLICY_AID_1",
+    "target_account": "aid=1",
+    "exclude_range_ids_lte": 1
+  },
+  "fault": {
+    "type": "egress_latency",
+    "direction": "egress_only",
+    "latency_ms": 1000,
+    "jitter_ms": 20,
+    "distribution": "normal",
+    "duration_sec": 180,
+    "fault_interval_sec": [120, 300]
+  },
+  "timeline_sec": {
+    "warmup": 120,
+    "t_reverify": 110,
+    "measurement": 600,
+    "fault_start": 120,
+    "fault_end": 300,
+    "post_workload_observation": 300,
+    "timestamp_format": "UTC_ISO8601_MICROSECONDS"
+  },
+  "client": {
+    "placement": "in_cluster",
+    "manifest": "kubernetes/cockroachdb/crdb-benchmark-client.yaml",
+    "retry_policy": "--max-tries=1"
+  },
+  "metrics": {
+    "primary_rto": "T2_first_successful_tx - T0_fault_injection",
+    "detection_time": "T1_first_detection_action - T0_fault_injection",
+    "rpo": "committed_data_lost_via_three_way_history_reconciliation",
+    "supplementary_restoration": "rolling_tps_recovery_ge_90pct_baseline_separate_from_ca2_rto"
+  },
+  "prerequisites_status": {
+    "stage3_sql_dataset_validation": "NOT_VERIFIED_AWAITING_OPERATOR_AUTH",
+    "supervisor_documentary_approval": "RESEARCHER_ATTESTED_DOCUMENTARY_PENDING",
+    "live_execution_authorization": "BLOCKED_NO_G1_AUTHORIZED_JSON"
+  }
+}
+

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: postgres-patroni
+  labels:
+    app.kubernetes.io/name: postgres-patroni
+    app.kubernetes.io/part-of: ric-gray-failure-research
+    ric.thesis/subsystem: postgres-patroni
+    ric.thesis/ca2-compliance: "true"
+

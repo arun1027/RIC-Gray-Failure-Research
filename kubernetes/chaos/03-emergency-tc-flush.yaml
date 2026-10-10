@@ -1,0 +1,124 @@
+# G1 Emergency Out-of-Band tc Qdisc Cleanup Job
+# Phase F.2.4 — Hardened manual operator recovery fallback ONLY. DO NOT APPLY in this phase.
+#
+# Security & Authorization Controls:
+# - Replaces the static G1_RECOVERY_AUTHORIZED environment-variable string check.
+# - Requires a single-use, time-bounded G1_RECOVERY_AUTHORIZED.json token mounted from an
+#   operator-created Secret, bound to run_id, target Pod UID/name, PID, start_time_ticks,
+#   netns_inode, interface ('eth0'), and qdisc ownership ('netem', '100:').
+# - Application-level token validation is NOT a substitute for Kubernetes RBAC or host security;
+#   RBAC in g1-chaos must independently restrict Job creation to authorized operators.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: emergency-tc-flush
+  namespace: g1-chaos
+  labels:
+    app.kubernetes.io/name: emergency-tc-flush
+    ric.research/scenario: g1
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 120
+  template:
+    spec:
+      serviceAccountName: g1-chaos-helper-sa
+      nodeName: <TARGET_WORKER_NODE_NAME>
+      hostPID: true
+      restartPolicy: Never
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rescuer
+          image: <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/ric-g1-helper@sha256:<IMMUTABLE_SHA256_DIGEST_REQUIRED>
+          env:
+            - name: G1_RUN_ID
+              value: "<RUN_ID>"
+            - name: G1_TARGET_POD
+              value: "<TARGET_COCKROACHDB_POD>"
+            - name: G1_TARGET_POD_UID
+              value: "<TARGET_COCKROACHDB_POD_UID>"
+          command:
+            - python3
+            - -c
+            - |
+              import os, subprocess, sys
+              sys.path.insert(0, "/opt/g1-helper")
+              from g1.g1_linux_runtime import LiveProcFilesystemInspector, LinuxSubprocessExecutor, TcCommandPlanner
+              from g1.g1_recovery_authorizer import G1RecoveryAuthorizer
+
+              inspector = LiveProcFilesystemInspector(proc_root="/proc")
+              proc = inspector.identify_target_process(pod_name=os.environ["G1_TARGET_POD"])
+              netns = inspector.resolve_netns(proc)
+
+              executor = LinuxSubprocessExecutor()
+              # Verify recovery authorization BEFORE any tc operation (allow_readonly_secret=True for Secret mount;
+              # operator MUST delete Secret g1-recovery-auth-token immediately after Job completion).
+              auth = G1RecoveryAuthorizer(
+                  base_dir="/var/run/g1-recovery",
+                  lock_dir="/var/run/g1-lock",
+                  allow_readonly_secret=True,
+              )
+              auth.verify_and_claim(
+                  expected_run_id=os.environ["G1_RUN_ID"],
+                  expected_pod_uid=os.environ["G1_TARGET_POD_UID"],
+                  expected_pod_name=os.environ["G1_TARGET_POD"],
+                  observed_pid=proc.pid,
+                  observed_start_time_ticks=proc.start_time_ticks,
+                  observed_netns_inode=netns.ns_inode,
+                  observed_interface="eth0",
+                  observed_qdisc_handle="100:",
+                  observed_qdisc_type="netem",
+                  consume_token=False,
+              )
+              before = executor.run(TcCommandPlanner.plan_show_qdisc("eth0"), netns_path=netns.ns_path)
+              if before.returncode != 0:
+                  raise SystemExit(f"Failed to inspect eth0 qdisc: {before.stderr}")
+              if "qdisc netem 100:" not in before.stdout:
+                  print("ALREADY_CLEARED: no owned netem 100: qdisc present on eth0.")
+              else:
+                  del_res = executor.run(TcCommandPlanner.plan_del_root_qdisc("eth0", "100:"), netns_path=netns.ns_path)
+                  if del_res.returncode != 0:
+                      raise SystemExit(f"Scoped tc qdisc del failed: {del_res.stderr}")
+                  after = executor.run(TcCommandPlanner.plan_show_qdisc("eth0"), netns_path=netns.ns_path)
+                  if after.returncode != 0 or "qdisc netem 100:" in after.stdout:
+                      raise SystemExit(f"Post-flush verification failed: {after.stdout} {after.stderr}")
+          securityContext:
+            runAsUser: 0
+            privileged: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_ADMIN
+                - SYS_ADMIN
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          volumeMounts:
+            - name: tmp-ephemeral
+              mountPath: /tmp
+            - name: lock-dir
+              mountPath: /var/run/g1-lock
+            - name: recovery-token
+              mountPath: /var/run/g1-recovery
+              readOnly: true
+      volumes:
+        - name: tmp-ephemeral
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Mi
+        - name: lock-dir
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Mi
+        - name: recovery-token
+          secret:
+            secretName: g1-recovery-auth-token
+            defaultMode: 0400

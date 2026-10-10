@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: g1-chaos-helper-sa
+  namespace: g1-chaos
+  labels:
+    app.kubernetes.io/name: g1-chaos-helper-sa
+    app.kubernetes.io/part-of: ric-gray-failure-research
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: g1-target-reader-role
+  namespace: cockroachdb
+  labels:
+    app.kubernetes.io/name: g1-target-reader-role
+    app.kubernetes.io/part-of: ric-gray-failure-research
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: g1-target-reader-binding
+  namespace: cockroachdb
+  labels:
+    app.kubernetes.io/name: g1-target-reader-binding
+    app.kubernetes.io/part-of: ric-gray-failure-research
+subjects:
+  - kind: ServiceAccount
+    name: g1-chaos-helper-sa
+    namespace: g1-chaos
+roleRef:
+  kind: Role
+  name: g1-target-reader-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: g1-claim-lease-role
+  namespace: g1-chaos
+  labels:
+    app.kubernetes.io/name: g1-claim-lease-role
+    app.kubernetes.io/part-of: ric-gray-failure-research
+rules:
+  # Strictly create-only on Leases in g1-chaos; NO get, list, watch, update, patch, or delete.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: g1-claim-lease-binding
+  namespace: g1-chaos
+  labels:
+    app.kubernetes.io/name: g1-claim-lease-binding
+    app.kubernetes.io/part-of: ric-gray-failure-research
+subjects:
+  - kind: ServiceAccount
+    name: g1-chaos-helper-sa
+    namespace: g1-chaos
+roleRef:
+  kind: Role
+  name: g1-claim-lease-role
+  apiGroup: rbac.authorization.k8s.io
+

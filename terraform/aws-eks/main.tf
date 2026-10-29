@@ -58,7 +58,7 @@ module "vpc" {
   enable_dns_support     = true
 
   public_subnet_tags = {
-    "kubernetes.io/role/elb"                    = "1"
+    "kubernetes.io/role/elb"                      = "1"
     "kubernetes.io/cluster/${local.cluster_name}" = "shared"
   }
 
@@ -124,9 +124,9 @@ module "eks" {
       }
 
       labels = {
-        "node.kubernetes.io/scope"               = "database-worker"
-        "ric.thesis/subsystem"                  = "shared-workers"
-        "topology.kubernetes.io/zone-spread"    = "enforced"
+        "node.kubernetes.io/scope"            = "database-worker"
+        "ric.thesis/subsystem"               = "shared-workers"
+        "topology.kubernetes.io/zone-spread" = "enforced"
       }
     }
   }

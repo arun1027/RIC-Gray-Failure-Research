@@ -1,0 +1,47 @@
+# ==============================================================================
+# RIC Research Repository - .gitignore
+# ==============================================================================
+
+# Private keys, TLS certificates, and secrets
+*.key
+*.pem
+*.pkcs8
+*.pfx
+*.p12
+
+# Explicit credential paths
+client.root.key
+certs/
+ca.crt
+client.root.crt
+cockroach-client.crt
+
+# Authorization tokens, claims, and execution locks
+*.claim
+P06_AUTHORIZED.json
+*_AUTHORIZED.json
+
+# Python caches and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Temporary and editor files
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Terraform local caches, state, and plan files
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
